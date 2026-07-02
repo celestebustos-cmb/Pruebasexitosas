@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Alta de Producto por Voz</title>
+<style>
+  body{font-family:Arial,sans-serif;background:#f4f6f9;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+  .card{background:white;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,.08);padding:28px;max-width:380px;text-align:center}
+  h2{margin-top:0;font-size:18px}
+  p{color:#666;font-size:13px;line-height:1.4}
+  button{background:#1B4FD8;color:white;border:none;border-radius:25px;padding:14px 24px;font-size:15px;font-weight:bold;cursor:pointer;width:100%;margin-top:10px}
+  button:disabled{opacity:.6;cursor:default}
+  button.grabando{background:#d93025;animation:pulso 1.2s infinite}
+  @keyframes pulso{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
+  #estado{margin-top:14px;font-size:13px;color:#666;min-height:20px}
+  #estado.error{color:#d93025;font-weight:bold}
+  #estado.ok{color:#0f9d58;font-weight:bold}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2>🎤 Alta de Producto por Voz</h2>
+    <p>Presioná el botón y describí el producto de forma natural. Ejemplo: <em>"Anotadores nuevos, stock 50 unidades, categoría papelería, precio 1500 pesos."</em></p>
+    <button id="btnHablar" onclick="empezarGrabacion()">🎤 Empezar a hablar</button>
+    <div id="estado">Esperando...</div>
+  </div>
+
+<script>
+  // ⚠️ Pegá acá la misma URL /exec de tu Apps Script
+  const URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbx34LvV_i7VT6XjMy39qxDVaVjoK-0mH-qbEjr-iCJ3jcwUPxKcMvALuv8jVjDS-kdK/exec";
+
+  const btn = document.getElementById('btnHablar');
+  const estado = document.getElementById('estado');
+
+  function setEstado(msg, clase){
+    estado.textContent = msg;
+    estado.className = clase || '';
+  }
+
+  function empezarGrabacion(){
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SpeechRecognition){
+      setEstado('Tu navegador no soporta reconocimiento de voz. Probá con Chrome.', 'error');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'es-AR';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    btn.disabled = true;
+    btn.classList.add('grabando');
+    btn.textContent = '🔴 Escuchando...';
+    setEstado('Hablá ahora...');
+
+    recognition.onresult = async (event) => {
+      const texto = event.results[0][0].transcript;
+      setEstado('Procesando: "' + texto + '"');
+      await procesarConGemini(texto);
+    };
+
+    recognition.onerror = (event) => {
+      btn.disabled = false;
+      btn.classList.remove('grabando');
+      btn.textContent = '🎤 Empezar a hablar';
+      if(event.error === 'not-allowed'){
+        setEstado('Error en el micrófono: not-allowed. Permití el acceso al micrófono en el navegador para este sitio.', 'error');
+      } else {
+        setEstado('Error de reconocimiento: ' + event.error, 'error');
+      }
+    };
+
+    recognition.onend = () => {
+      btn.disabled = false;
+      btn.classList.remove('grabando');
+      btn.textContent = '🎤 Empezar a hablar';
+    };
+
+    recognition.start();
+  }
+
+  async function procesarConGemini(texto){
+    try{
+      const respuesta = await fetch(URL_APPS_SCRIPT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita preflight CORS
+        body: JSON.stringify({ accion: 'procesar_voz', texto: texto })
+      });
+      const data = await respuesta.json();
+
+      if(data.error){
+        setEstado(data.error, 'error');
+        return;
+      }
+
+      setEstado('✨ ¡Datos extraídos! Cerrando...', 'ok');
+
+      if(window.opener){
+        window.opener.postMessage({ tipo: 'datosProductoPVS', datos: data }, '*');
+      }
+      setTimeout(() => window.close(), 1200);
+
+    }catch(err){
+      setEstado('Error de conexión: ' + err.message, 'error');
+    }
+  }
+</script>
+</body>
+</html>
